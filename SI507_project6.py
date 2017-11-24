@@ -1,11 +1,9 @@
-# Import statements
 from psycopg2 import sql
 import psycopg2.extras
 import sys
 import csv
 from config import *
 
-# Write code / functions to set up database connection and cursor here.
 db_connection = None
 db_cursor = None
 
@@ -24,8 +22,6 @@ def get_connection_and_cursor():
 
   return db_connection, db_cursor
 
-
-# Write code / functions to create tables with the columns you want and all database setup here.
 def setup_database():
   conn, cur = get_connection_and_cursor()
 
@@ -47,15 +43,6 @@ def setup_database():
   conn.commit()
   print('Setup database complete')
 
-
-# Write code / functions to deal with CSV files and insert data into the database here.
-def readCSV_generator(filename):
-    with open(filename, 'r', newline='', encoding='utf-8-sig') as csvfile:
-        reader = csv.reader(csvfile)
-        head = next(reader)
-        for row in reader:
-          yield row
-
 # The insert function is adapted from twitter_database.py
 def insert(conn, cur, table, data_dict, do_return=False):
     column_names = data_dict.keys()
@@ -76,23 +63,23 @@ def insert(conn, cur, table, data_dict, do_return=False):
     if do_return:
         return cur.fetchone()['id']
 
-# Write code to be invoked here (e.g. invoking any functions you wrote above)
 setup_database()
 states = ['Arkansas', 'Michigan', 'California']
 
 for state in states:
   id = insert(db_connection, db_cursor, 'States', {'name': state}, True)
   filename = state.lower() + '.csv'
-  for row in readCSV_generator(filename):
-    insert(db_connection, db_cursor, 'Sites', {'name': row[0],
-                                               'type': row[2],
-                                               'state_id': id,
-                                               'location': row[3],
-                                               'description': row[4]}
-          )
+  with open(filename, 'r', newline='', encoding='utf-8-sig') as csvfile:
+        reader = csv.DictReader(csvfile)
+        for row in reader:
+          insert(db_connection, db_cursor, 'Sites', {'name': row['NAME'],
+                                                     'type': row['TYPE'],
+                                                     'state_id': id,
+                                                     'location': row['LOCATION'],
+                                                     'description': row['DESCRIPTION']}
+                )
 db_connection.commit()
 
-# Write code to make queries and save data in variables here.
 db_cursor.execute("""SELECT Location
                        FROM Sites""")
 all_locations = [result['location'] for result in db_cursor.fetchall()]
