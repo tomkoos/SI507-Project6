@@ -1,32 +1,123 @@
 # Import statements
-import psycopg2
-
+from psycopg2 import sql
+import psycopg2.extras
+import sys
+import csv
+from config import *
 
 # Write code / functions to set up database connection and cursor here.
+db_connection = None
+db_cursor = None
 
+def get_connection_and_cursor():
+  global db_connection, db_cursor
+  if not db_connection:
+      try:
+          db_connection = psycopg2.connect("dbname='{0}' user='{1}' password='{2}'".format(db_name, db_user, db_password))
+          print("Success connecting to database")
+      except:
+          print("Unable to connect to the database. Check server and credentials.")
+          sys.exit(1)
+
+  if not db_cursor:
+      db_cursor = db_connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+  return db_connection, db_cursor
 
 
 # Write code / functions to create tables with the columns you want and all database setup here.
+def setup_database():
+  conn, cur = get_connection_and_cursor()
 
+  cur.execute("DROP TABLE IF EXISTS Sites")
+  cur.execute("DROP TABLE IF EXISTS States")
+
+  cur.execute("CREATE TABLE IF NOT EXISTS \
+                 Sites(ID SERIAL PRIMARY KEY, \
+                       Name VARCHAR(128) UNIQUE, \
+                       Type VARCHAR(128), \
+                       State_ID INT, \
+                       Location VARCHAR(255), \
+                       Description TEXT)")
+
+  cur.execute("CREATE TABLE IF NOT EXISTS \
+                 States(ID SERIAL PRIMARY KEY, \
+                        Name VARCHAR(40) UNIQUE)")
+
+  conn.commit()
+  print('Setup database complete')
 
 
 # Write code / functions to deal with CSV files and insert data into the database here.
+def readCSV_generator(filename):
+    with open(filename, 'r', newline='', encoding='utf-8-sig') as csvfile:
+        reader = csv.reader(csvfile)
+        head = next(reader)
+        for row in reader:
+          yield row
 
-
-
-# Make sure to commit your database changes with .commit() on the database connection.
-
-
+# The insert function is adapted from twitter_database.py
+def insert(conn, cur, table, data_dict, do_return=False):
+    column_names = data_dict.keys()
+    if do_return:
+        query = sql.SQL('INSERT INTO {0}({1}) VALUES({2}) ON CONFLICT DO NOTHING RETURNING id').format(
+            sql.SQL(table),
+            sql.SQL(', ').join(map(sql.Identifier, column_names)),
+            sql.SQL(', ').join(map(sql.Placeholder, column_names))
+        )
+    else:
+        query = sql.SQL('INSERT INTO {0}({1}) VALUES({2}) ON CONFLICT DO NOTHING').format(
+            sql.SQL(table),
+            sql.SQL(', ').join(map(sql.Identifier, column_names)),
+            sql.SQL(', ').join(map(sql.Placeholder, column_names))
+        )
+    query_string = query.as_string(conn)
+    cur.execute(query_string, data_dict)
+    if do_return:
+        return cur.fetchone()['id']
 
 # Write code to be invoked here (e.g. invoking any functions you wrote above)
+setup_database()
+states = ['Arkansas', 'Michigan', 'California']
 
-
+for state in states:
+  id = insert(db_connection, db_cursor, 'States', {'name': state}, True)
+  filename = state.lower() + '.csv'
+  for row in readCSV_generator(filename):
+    insert(db_connection, db_cursor, 'Sites', {'name': row[0],
+                                               'type': row[2],
+                                               'state_id': id,
+                                               'location': row[3],
+                                               'description': row[4]}
+          )
+db_connection.commit()
 
 # Write code to make queries and save data in variables here.
+db_cursor.execute("""SELECT Location
+                       FROM Sites""")
+all_locations = [result['location'] for result in db_cursor.fetchall()]
+# print(all_locations)
 
+db_cursor.execute("""SELECT Name
+                       FROM Sites
+                         WHERE Sites.description like '%beautiful%'""")
+beautiful_sites = [result['name'] for result in db_cursor.fetchall()]
+# print(beautiful_sites)
 
+db_cursor.execute("""SELECT COUNT(id)
+                       FROM Sites
+                         WHERE Type='National Lakeshore'""")
+natl_lakeshores = db_cursor.fetchone()['count']
+# print(natl_lakeshores)
 
+db_cursor.execute("""SELECT Sites.name
+                       FROM Sites INNER JOIN States ON (Sites.state_id = States.id)
+                         WHERE States.name='Michigan'""")
+michigan_names = [result['name'] for result in db_cursor.fetchall()]
+# print(michigan_names)
 
-
-
-# We have not provided any tests, but you could write your own in this file or another file, if you want.
+db_cursor.execute("""SELECT COUNT(Sites.id)
+                       FROM Sites INNER JOIN States ON (Sites.state_id = States.id)
+                         WHERE States.name='Arkansas'""")
+natl_lakeshores = db_cursor.fetchone()['count']
+# print(natl_lakeshores)
